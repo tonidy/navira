@@ -25,7 +25,7 @@ services:
     mem_limit: 768m
 
   wordpress:
-    image: wordpress:6
+    image: wordpress:7.1.0
     restart: unless-stopped
     depends_on:
       db:
