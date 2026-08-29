@@ -38,8 +38,8 @@ services:
       WORDPRESS_TABLE_PREFIX: ${WORDPRESS_TABLE_PREFIX:-wp_}
     volumes:
       - wordpress_data:/var/www/html
-    expose:
-      - "80"
+      ports:
+        - "8081:80"
     networks:
       - backend
     mem_limit: 640m
