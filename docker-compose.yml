@@ -1,11 +1,24 @@
 name: navira
 
-# WordPress + MySQL stack for deployment through Ployer.
-# Populate the variables in Ployer's encrypted environment-variable UI.
+# WordPress + MySQL for navira.run.biz.id.
+#
+# This file mirrors the deployed stack at /opt/stacks/navira/compose.yaml.
+# Keep the two in sync and diff them before changing either one.
+#
+# WordPress runs as php-fpm and does not serve HTTP itself. The host nginx
+# vhost (/etc/nginx/sites-enabled/navira.run.biz.id.conf) terminates TLS and
+# speaks FastCGI to 127.0.0.1:9000. nginx also has to read the same files for
+# its own "index" and "try_files" handling, which is why the webroot is a host
+# bind mount and not a named volume: /var/lib/docker is mode 0710 root:root, so
+# nginx's www-data user cannot traverse into a named volume and every request
+# turns into a site-wide 404.
+#
+# Secrets come from .env, which is deliberately not in this repo. See fnox.toml.
 
 services:
   db:
     image: mysql:8
+    command: ["--max-connections=40", "--table-open-cache=512", "--performance-schema=OFF"]
     restart: unless-stopped
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE}
@@ -20,16 +33,17 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
-    networks:
-      - backend
     mem_limit: 768m
 
   wordpress:
-    image: wordpress:7.1.0
+    image: wordpress:7.1.0-php8.5-fpm
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+    ports:
+      # FastCGI, bound to loopback. The host nginx connects here.
+      - "127.0.0.1:9000:9000"
     environment:
       WORDPRESS_DB_HOST: db:3306
       WORDPRESS_DB_NAME: ${MYSQL_DATABASE}
@@ -37,16 +51,19 @@ services:
       WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD}
       WORDPRESS_TABLE_PREFIX: ${WORDPRESS_TABLE_PREFIX:-wp_}
     volumes:
-      - wordpress_data:/var/www/html
-      ports:
-        - "8081:80"
-    networks:
-      - backend
-    mem_limit: 640m
-
-networks:
-  backend:
+      # Shared with nginx, see the note at the top of this file.
+      - /srv/navira/wp:/var/www/html
+      - ./php-fpm-limits.conf:/usr/local/etc/php-fpm.d/zz-resource-limits.conf:ro
+      # wp-cli, parked on the host so it survives container recreates.
+      - /srv/navira/bin/wp:/usr/local/bin/wp:ro
+    mem_limit: 512m
 
 volumes:
   mysql_data:
+    external: true
+    name: sh0-wp-portofolio-db-data
+  # The pre-bind-mount webroot. Not mounted any more, kept so the old copy of
+  # the files stays reachable if the bind mount needs rolling back.
   wordpress_data:
+    external: true
+    name: sh0-wp-portofolio-wp-data
