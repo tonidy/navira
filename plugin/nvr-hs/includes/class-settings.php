@@ -91,6 +91,17 @@ final class Settings {
 			'deal_stage_lost'      => 'closedlost',
 			'deal_owner_id'        => '',
 
+			// Currency code stamped on each deal. Empty means send nothing and
+			// let HubSpot use the portal's company currency, which is correct
+			// whenever the store and the portal agree.
+			//
+			// Only set this on a portal with more than one currency enabled, and
+			// only to a code that is actually enabled there: HubSpot rejects an
+			// unknown code with INVALID_OPTION, and since the code goes up in the
+			// same call as the rest of the deal, a wrong value fails the whole
+			// deal rather than just the currency.
+			'deal_currency_code'   => '',
+
 			// Minutes of inactivity before a cart counts as abandoned.
 			'cart_abandon_minutes' => 60,
 

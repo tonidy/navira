@@ -159,6 +159,15 @@ final class Deal_Pipeline {
 			$properties['hubspot_owner_id'] = $owner;
 		}
 
+		// Left unset by default: when the store and the portal share a currency,
+		// sending nothing is both correct and safer, because HubSpot rejects a
+		// code that is not enabled on the portal and would take the whole deal
+		// down with it.
+		$currency = $this->settings->str( 'deal_currency_code' );
+		if ( '' !== $currency ) {
+			$properties['deal_currency_code'] = $currency;
+		}
+
 		$deal_id = $this->deals->upsert( $reference, $properties );
 
 		if ( is_wp_error( $deal_id ) ) {

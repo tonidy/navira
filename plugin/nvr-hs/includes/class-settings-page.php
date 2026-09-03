@@ -132,6 +132,17 @@ final class Settings_Page {
 		$this->text_row( 'deal_stage_lost', __( 'Stage when cancelled or refunded', 'nvr-hs' ), (string) $s['deal_stage_lost'] );
 		$this->text_row( 'deal_owner_id', __( 'Deal owner ID', 'nvr-hs' ), (string) $s['deal_owner_id'], __( 'Optional. Leave blank to let HubSpot assign.', 'nvr-hs' ) );
 
+		$this->text_row(
+			'deal_currency_code',
+			__( 'Deal currency code', 'nvr-hs' ),
+			(string) $s['deal_currency_code'],
+			sprintf(
+				/* translators: %s: store currency code */
+				__( 'Leave blank unless your portal has more than one currency enabled. This store trades in %s, so the cleanest setup is to make that the portal company currency and leave this empty. A code the portal does not have enabled is rejected and fails the whole deal.', 'nvr-hs' ),
+				get_woocommerce_currency()
+			)
+		);
+
 		echo '</tbody></table>';
 
 		echo '<h2>' . esc_html__( 'Cart recovery and follow-up', 'nvr-hs' ) . '</h2>';
@@ -267,6 +278,7 @@ final class Settings_Page {
 				'deal_stage_won'       => sanitize_text_field( wp_unslash( (string) ( $_POST['deal_stage_won'] ?? '' ) ) ),
 				'deal_stage_lost'      => sanitize_text_field( wp_unslash( (string) ( $_POST['deal_stage_lost'] ?? '' ) ) ),
 				'deal_owner_id'        => sanitize_text_field( wp_unslash( (string) ( $_POST['deal_owner_id'] ?? '' ) ) ),
+				'deal_currency_code'   => strtoupper( sanitize_text_field( wp_unslash( (string) ( $_POST['deal_currency_code'] ?? '' ) ) ) ),
 				'cart_abandon_minutes' => max( 5, (int) ( $_POST['cart_abandon_minutes'] ?? 60 ) ),
 				'email_mode'           => 'woocommerce' === ( $_POST['email_mode'] ?? '' ) ? 'woocommerce' : 'workflow',
 				'tier_vip_ltv'         => (float) ( $_POST['tier_vip_ltv'] ?? 0 ),
