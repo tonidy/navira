@@ -56,14 +56,33 @@ final class Queue {
 	 *
 	 * @param string              $job     Handler name.
 	 * @param array<string,mixed> $payload Job data.
-	 * @param string              $dedupe  Optional key; a pending job with the
-	 *                                     same key is not queued twice. Use it
-	 *                                     for "sync order 1234", which can fire
-	 *                                     from several Woo hooks at once.
+	 * @param string              $dedupe  Optional key; a job still in flight
+	 *                                     with the same key is not queued twice.
+	 *                                     Use it for "sync order 1234", which
+	 *                                     can fire from several Woo hooks in one
+	 *                                     request. The key is released once the
+	 *                                     job settles, so a later change to the
+	 *                                     same order can queue again.
 	 * @param int                 $delay   Seconds to wait before running.
 	 */
 	public function push( string $job, array $payload = array(), string $dedupe = '', int $delay = 0 ): bool {
 		global $wpdb;
+
+		/**
+		 * Short-circuit queueing entirely.
+		 *
+		 * For bulk work that should not become HubSpot traffic: importing a
+		 * back catalogue of orders, seeding demo data, or a staging site that
+		 * shares a database snapshot with production and must not write to the
+		 * live portal.
+		 *
+		 * @param bool                $enabled Whether to queue this job.
+		 * @param string              $job     Handler name.
+		 * @param array<string,mixed> $payload Job data.
+		 */
+		if ( ! apply_filters( 'nvr_hs_queue_enabled', true, $job, $payload ) ) {
+			return false;
+		}
 
 		$now  = time();
 		$data = array(
@@ -75,8 +94,10 @@ final class Queue {
 			'dedupe_key'   => '' === $dedupe ? null : substr( $job . ':' . $dedupe, 0, 191 ),
 		);
 
-		// A duplicate dedupe_key trips the unique index. That is the intended
-		// outcome, so suppress the error rather than logging a scary row.
+		// A duplicate dedupe_key trips the unique index, which is the intended
+		// outcome for a job already waiting to run, so suppress the error rather
+		// than logging a scary row. Finished jobs have had their key released to
+		// NULL, so this only ever collides with live work.
 		$suppress = $wpdb->suppress_errors( true );
 		$inserted = $wpdb->insert( self::table(), $data, array( '%s', '%s', '%s', '%s', '%s', '%s' ) );
 		$wpdb->suppress_errors( $suppress );
@@ -146,13 +167,7 @@ final class Queue {
 
 			try {
 				$handler( $payload );
-				$wpdb->update(
-					self::table(),
-					array( 'status' => 'done' ),
-					array( 'id' => (int) $job->id ),
-					array( '%s' ),
-					array( '%d' )
-				);
+				$this->settle( (int) $job->id, 'done' );
 				++$stats['done'];
 			} catch ( \Throwable $e ) {
 				$attempts = (int) $job->attempts + 1;
@@ -186,20 +201,47 @@ final class Queue {
 	}
 
 	private function fail( int $id, string $message ): void {
+		$this->settle( $id, 'failed', $message );
+		$this->logger->error( 'queue_failed', $message, array( 'job_id' => $id ) );
+	}
+
+	/**
+	 * Finish a job and release its dedupe key.
+	 *
+	 * Releasing the key is the whole point. It is a lock on work in flight,
+	 * not a permanent record that the work once happened. Leaving it set meant
+	 * a WooCommerce order that synced while "processing" could never sync again
+	 * when it moved to "completed", because the unique index rejected the new
+	 * job, so the deal stage silently froze at whatever it was first seen as.
+	 * MySQL permits many NULLs in a unique index, which is what makes this work.
+	 */
+	private function settle( int $id, string $status, string $error = '' ): void {
 		global $wpdb;
 
-		$wpdb->update(
-			self::table(),
-			array(
-				'status'     => 'failed',
-				'last_error' => substr( $message, 0, 500 ),
-			),
-			array( 'id' => $id ),
-			array( '%s', '%s' ),
-			array( '%d' )
-		);
+		// Raw queries rather than $wpdb->update: that helper turns null into '',
+		// which would leave every settled job sharing the empty-string key and
+		// colliding all over again. The NULL has to be written literally.
+		if ( '' === $error ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL
+			$wpdb->query(
+				$wpdb->prepare(
+					'UPDATE ' . self::table() . ' SET status = %s, dedupe_key = NULL WHERE id = %d',
+					$status,
+					$id
+				)
+			);
+			return;
+		}
 
-		$this->logger->error( 'queue_failed', $message, array( 'job_id' => $id ) );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL
+		$wpdb->query(
+			$wpdb->prepare(
+				'UPDATE ' . self::table() . ' SET status = %s, dedupe_key = NULL, last_error = %s WHERE id = %d',
+				$status,
+				substr( $error, 0, 500 ),
+				$id
+			)
+		);
 	}
 
 	/**

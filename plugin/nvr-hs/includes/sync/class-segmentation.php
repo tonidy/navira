@@ -9,6 +9,7 @@ declare( strict_types = 1 );
 
 namespace NvrHs\Sync;
 
+use NvrHs\Api\Client;
 use NvrHs\Api\Contacts;
 use NvrHs\Api\Properties;
 use NvrHs\Logger;
@@ -110,6 +111,16 @@ final class Segmentation {
 		$result = $this->contacts->upsert( $email, $properties );
 
 		if ( is_wp_error( $result ) ) {
+			// An address HubSpot refuses will be refused again on every retry.
+			if ( Client::is_permanent( $result ) ) {
+				$this->logger->error(
+					'segment_rejected',
+					sprintf( 'HubSpot will not accept %s, not retrying. %s', $email, $result->get_error_message() ),
+					array( 'email' => $email )
+				);
+				return;
+			}
+
 			throw new \RuntimeException( 'Segment write failed: ' . $result->get_error_message() );
 		}
 

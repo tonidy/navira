@@ -9,6 +9,7 @@ declare( strict_types = 1 );
 
 namespace NvrHs\Sync;
 
+use NvrHs\Api\Client;
 use NvrHs\Api\Contacts;
 use NvrHs\Logger;
 use NvrHs\Queue;
@@ -123,6 +124,15 @@ final class Contact_Sync {
 		$result = $this->contacts->upsert( $email, $properties );
 
 		if ( is_wp_error( $result ) ) {
+			if ( Client::is_permanent( $result ) ) {
+				$this->logger->error(
+					'user_rejected',
+					sprintf( 'HubSpot will not accept user %d (%s), not retrying. %s', $user_id, $email, $result->get_error_message() ),
+					array( 'user_id' => $user_id )
+				);
+				return;
+			}
+
 			throw new \RuntimeException( 'User sync failed: ' . $result->get_error_message() );
 		}
 

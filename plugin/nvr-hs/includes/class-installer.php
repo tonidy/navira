@@ -16,7 +16,7 @@ defined( 'ABSPATH' ) || exit;
  */
 final class Installer {
 
-	public const DB_VERSION        = '1';
+	public const DB_VERSION        = '2';
 	public const OPTION_DB_VERSION = 'nvr_hs_db_version';
 
 	public const CRON_QUEUE   = 'nvr_hs_run_queue';
@@ -42,11 +42,39 @@ final class Installer {
 	 * hook, still gets its schema.
 	 */
 	public static function maybe_upgrade(): void {
-		if ( get_option( self::OPTION_DB_VERSION ) === self::DB_VERSION ) {
+		$stored = (string) get_option( self::OPTION_DB_VERSION, '0' );
+
+		if ( $stored === self::DB_VERSION ) {
 			return;
 		}
+
 		self::create_tables();
 		self::ensure_schedule();
+
+		// v2: release dedupe keys still held by jobs that had already settled.
+		//
+		// Queue::settle() now clears the key when a job finishes, but rows
+		// written before that change still hold theirs, and a held key blocks
+		// every future enqueue for the same order. Without this an existing
+		// install would carry on silently dropping deal stage updates for any
+		// order it had synced once already.
+		if ( version_compare( $stored, '2', '<' ) ) {
+			global $wpdb;
+
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL
+			$released = (int) $wpdb->query(
+				'UPDATE ' . Queue::table() . " SET dedupe_key = NULL WHERE status IN ('done','failed') AND dedupe_key IS NOT NULL"
+			);
+
+			if ( $released > 0 ) {
+				( new Logger( new Settings() ) )->error(
+					'migrate_dedupe_release',
+					sprintf( 'Released %d stale dedupe key(s) from settled jobs.', $released ),
+					array( 'from_version' => $stored )
+				);
+			}
+		}
+
 		update_option( self::OPTION_DB_VERSION, self::DB_VERSION, false );
 	}
 

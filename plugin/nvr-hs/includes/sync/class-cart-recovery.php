@@ -9,6 +9,7 @@ declare( strict_types = 1 );
 
 namespace NvrHs\Sync;
 
+use NvrHs\Api\Client;
 use NvrHs\Api\Contacts;
 use NvrHs\Api\Properties;
 use NvrHs\Logger;
@@ -332,6 +333,26 @@ final class Cart_Recovery {
 		);
 
 		if ( is_wp_error( $result ) ) {
+			if ( Client::is_permanent( $result ) ) {
+				// Mark it notified so the sweep stops picking this cart up.
+				// There is no address we can ever deliver to.
+				global $wpdb;
+				$wpdb->update(
+					self::table(),
+					array( 'notified_at' => gmdate( 'Y-m-d H:i:s' ) ),
+					array( 'id' => $cart_id ),
+					array( '%s' ),
+					array( '%d' )
+				);
+
+				$this->logger->error(
+					'cart_contact_rejected',
+					sprintf( 'HubSpot will not accept %s, cart %d abandoned without a nudge. %s', $row->email, $cart_id, $result->get_error_message() ),
+					array( 'cart_id' => $cart_id )
+				);
+				return;
+			}
+
 			throw new \RuntimeException( 'Cart state write failed: ' . $result->get_error_message() );
 		}
 

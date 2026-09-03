@@ -215,6 +215,27 @@ final class Client {
 	}
 
 	/**
+	 * Whether an error will still be an error however many times we retry.
+	 *
+	 * A rejected email or a malformed property value is a fact about the data,
+	 * not a transient fault. Retrying it five times with backoff burns API
+	 * calls and buries the real cause under identical log lines, so callers
+	 * use this to fail a job once, loudly, instead of repeatedly.
+	 */
+	public static function is_permanent( WP_Error $error ): bool {
+		$data   = $error->get_error_data();
+		$status = (int) ( is_array( $data ) ? ( $data['status'] ?? 0 ) : 0 );
+
+		if ( 400 !== $status ) {
+			return false;
+		}
+
+		$category = (string) ( $data['body']['category'] ?? '' );
+
+		return in_array( $category, array( 'VALIDATION_ERROR', 'OBJECT_NOT_FOUND' ), true );
+	}
+
+	/**
 	 * Verify the token and report what the portal is. Used by the settings
 	 * page connection test, so it runs in the foreground on purpose.
 	 *

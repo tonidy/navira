@@ -27,6 +27,53 @@ final class Settings {
 	private ?array $cache = null;
 
 	/**
+	 * Rough units-per-USD, used only to scale the money defaults.
+	 *
+	 * Not an FX rate and never used for conversion: it exists so a store
+	 * trading in rupiah does not inherit a "high value" threshold of 1000 IDR,
+	 * which is about six cents and would push every single order into the deal
+	 * pipeline. Order of magnitude is all that matters here, and the admin is
+	 * expected to tune the actual numbers on the settings screen.
+	 */
+	private const CURRENCY_SCALE = array(
+		'IDR' => 16000.0,
+		'VND' => 25000.0,
+		'KRW' => 1300.0,
+		'JPY' => 150.0,
+		'INR' => 84.0,
+		'PHP' => 58.0,
+		'THB' => 36.0,
+		'MYR' => 4.7,
+		'CNY' => 7.2,
+		'BRL' => 5.4,
+		'ZAR' => 18.0,
+		'AUD' => 1.5,
+		'SGD' => 1.35,
+		'USD' => 1.0,
+		'EUR' => 1.0,
+		'GBP' => 1.0,
+	);
+
+	/**
+	 * Scale a USD-shaped default into the store's currency, rounded to
+	 * something a human would have typed.
+	 */
+	private static function money( float $usd ): float {
+		$currency = function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : 'USD';
+		$scale     = self::CURRENCY_SCALE[ $currency ] ?? 1.0;
+		$value     = $usd * $scale;
+
+		// Round to two significant figures so we get 1,600,000 rather than
+		// 1,600,000.00000001, and 1000 stays 1000.
+		if ( $value >= 100 ) {
+			$magnitude = 10 ** ( floor( log10( $value ) ) - 1 );
+			return round( $value / $magnitude ) * $magnitude;
+		}
+
+		return round( $value, 2 );
+	}
+
+	/**
 	 * Defaults reflect the real Navira portal (247211579) so a fresh install
 	 * is already pointed at the right pipeline instead of an empty select.
 	 *
@@ -35,7 +82,7 @@ final class Settings {
 	public static function defaults(): array {
 		return array(
 			// A lead worth at least this much (store currency) gets a deal.
-			'high_value_threshold' => 1000.0,
+			'high_value_threshold' => self::money( 200.0 ),
 
 			// Sales Pipeline in portal 247211579.
 			'deal_pipeline'        => 'default',
@@ -53,7 +100,7 @@ final class Settings {
 			'email_mode'           => 'workflow',
 
 			// Customer tiers, evaluated highest first on lifetime value.
-			'tier_vip_ltv'         => 5000.0,
+			'tier_vip_ltv'         => self::money( 1000.0 ),
 			'tier_repeat_orders'   => 2,
 			'churn_risk_days'      => 90,
 

@@ -9,6 +9,7 @@ declare( strict_types = 1 );
 
 namespace NvrHs\Sync;
 
+use NvrHs\Api\Client;
 use NvrHs\Api\Contacts;
 use NvrHs\Api\Deals;
 use NvrHs\Logger;
@@ -166,6 +167,12 @@ final class Deal_Pipeline {
 
 		// Link the contact. CRM Perks may well have created it already; upsert
 		// finds that record rather than making a second one.
+		//
+		// A contact failure does not abandon the deal. HubSpot rejects some
+		// addresses outright (a reserved TLD, a typo'd domain), and when that
+		// happens the order is still real and the sales team still wants the
+		// deal with its line items. So a permanent rejection is logged and
+		// stepped over; only a transient one is worth retrying the job for.
 		$contact_id = $this->contacts->upsert(
 			$email,
 			array(
@@ -175,13 +182,28 @@ final class Deal_Pipeline {
 		);
 
 		if ( is_wp_error( $contact_id ) ) {
-			throw new \RuntimeException( 'Contact upsert failed: ' . $contact_id->get_error_message() );
+			if ( ! Client::is_permanent( $contact_id ) ) {
+				throw new \RuntimeException( 'Contact upsert failed: ' . $contact_id->get_error_message() );
+			}
+
+			$this->logger->error(
+				'deal_contact_rejected',
+				sprintf( 'Order %d: HubSpot will not accept the contact, deal left unlinked. %s', $order_id, $contact_id->get_error_message() ),
+				array(
+					'order_id' => $order_id,
+					'email'    => $email,
+					'deal_id'  => $deal_id,
+				)
+			);
+			$contact_id = '';
 		}
 
-		$linked = $this->deals->link_contact( $deal_id, $contact_id );
+		if ( '' !== $contact_id ) {
+			$linked = $this->deals->link_contact( $deal_id, $contact_id );
 
-		if ( is_wp_error( $linked ) ) {
-			throw new \RuntimeException( 'Deal to contact link failed: ' . $linked->get_error_message() );
+			if ( is_wp_error( $linked ) ) {
+				throw new \RuntimeException( 'Deal to contact link failed: ' . $linked->get_error_message() );
+			}
 		}
 
 		// Line items are added once. Re-adding on every status change would
