@@ -2,10 +2,19 @@
 #
 # Seed or purge the demo purchase history on the navira store.
 #
-#   bin/seed-demo.sh              seed, WooCommerce only, no HubSpot writes
-#   bin/seed-demo.sh --hubspot    seed and queue the HubSpot syncs too
-#   bin/seed-demo.sh --purge      remove everything seeded
-#   bin/seed-demo.sh --report     show what the data looks like now
+#   bin/seed-demo.sh                    seed, WooCommerce only, no HubSpot writes
+#   bin/seed-demo.sh --hubspot          seed and queue the HubSpot syncs too
+#   bin/seed-demo.sh --purge            remove the WooCommerce side
+#   bin/seed-demo.sh --purge-hubspot    show what would go from the portal (dry run)
+#   bin/seed-demo.sh --purge-hubspot --confirm
+#                                       actually remove it from the portal
+#   bin/seed-demo.sh --purge-hubspot --confirm --company-id=123,456
+#                                       and remove those companies by id
+#   bin/seed-demo.sh --report           show what the data looks like now
+#
+# --purge and --purge-hubspot are deliberately separate. Deleting CRM records
+# is not something a local purge should do as a side effect, and the two sides
+# can legitimately be reset independently.
 #
 # HubSpot writes are off by default. Seeding queues one job per order and per
 # customer, and that is a lot of traffic to push into a live portal unless you
@@ -83,8 +92,22 @@ PHPEOF
 
 case "$MODE" in
 	--purge)
-		echo "==> purging demo data"
+		echo "==> purging demo data (WooCommerce side only)"
 		run_php < "${HERE}/seed/purge.php"
+		echo
+		echo "    HubSpot still holds the synced contacts and deals."
+		echo "    Run: bin/seed-demo.sh --purge-hubspot"
+		;;
+	--purge-hubspot)
+		if [ -z "${HS_PAK:-}" ]; then
+			echo "error: HS_PAK is not set. Run under: fnox exec -- bin/seed-demo.sh --purge-hubspot" >&2
+			exit 1
+		fi
+		# Pass through --confirm and --companies untouched; the script defaults
+		# to a dry run when neither is present.
+		shift
+		python3 "${HERE}/seed/purge-hubspot.py" "$@"
+		exit $?
 		;;
 	--report)
 		report
