@@ -14,7 +14,8 @@
  * exactly this and nothing else.
  *
  * Env:
- *   NVR_SEED_HUBSPOT=1  queue the HubSpot syncs (default: do not)
+ *   NVR_SEED_HUBSPOT=1     queue the HubSpot syncs (default: do not)
+ *   NVR_SEED_CARTS_ONLY=1  refresh only the abandoned carts, leave orders alone
  *
  * @package NvrHs
  */
@@ -28,6 +29,7 @@ if ( ! defined( 'WP_CLI' ) ) {
 const SEED_META = '_nvr_demo_seed';
 
 $push_hubspot = '1' === (string) getenv( 'NVR_SEED_HUBSPOT' );
+$carts_only   = '1' === (string) getenv( 'NVR_SEED_CARTS_ONLY' );
 
 // Unless we are deliberately populating the CRM, keep this entirely local.
 // Seeding 60-odd orders would otherwise queue a HubSpot job per order and per
@@ -284,7 +286,10 @@ $created_users  = 0;
 $revenue        = 0.0;
 $summary        = array();
 
-foreach ( $customers as $index => $customer ) {
+// Carts-only refresh skips the customers and orders entirely, so the cart
+// shapes can be corrected without rebuilding ten months of history or
+// re-queueing a HubSpot job for every order.
+foreach ( ( $carts_only ? array() : $customers ) as $index => $customer ) {
 	$user_id = 0;
 
 	if ( $customer['register'] ) {
@@ -410,18 +415,27 @@ foreach ( $customers as $index => $customer ) {
  */
 global $wpdb;
 $carts_table = $wpdb->prefix . 'nvr_hs_carts';
+//
+// The 'sweep' rows are the important ones: left with abandoned_at NULL and a
+// stale 'updated', so the real cron sweep finds them, marks them abandoned and
+// queues the notify job that writes nvr_cart_abandoned_at onto the contact.
+// Pre-marking every cart as already notified, which is what the first version
+// of this did, meant the sweep skipped all of them and the HubSpot cart
+// properties were never populated, so the recovery feature had nothing to
+// demonstrate. The pre-marked rows are still here to give the report history.
 $cart_specs  = array(
 	// email, hours_ago, total, items, abandoned, notified, recovered
-	array( 'ayu.kusuma@example.com', 3, 420.00, 3, true, true, false ),
-	array( 'citra.melati@example.com', 9, 1180.00, 5, true, true, false ),
-	array( 'yuni.hartati@example.org', 26, 260.00, 2, true, true, true ),
-	array( 'lia.marlina@example.net', 50, 2340.00, 8, true, true, false ),
-	array( 'fitri.handayani@example.com', 2, 890.00, 4, true, false, false ),
-	array( 'tari.oktaviani@example.com', 74, 640.00, 3, true, true, true ),
-	array( 'vina.kartika@example.com', 1, 150.00, 1, false, false, false ),
-	array( 'maya.sari@example.com', 5, 3100.00, 11, true, true, false ),
-	array( 'nabila.azzahra@example.net', 12, 720.00, 4, true, true, false ),
-	array( 'hesti.nuraini@example.com', 40, 310.00, 2, true, true, false ),
+	array( 'ayu.kusuma@example.com', 3, 420000.00, 3, 'sweep', false, false ),
+	array( 'citra.melati@example.com', 9, 1180000.00, 5, 'sweep', false, false ),
+	array( 'maya.sari@example.com', 5, 3100000.00, 11, 'sweep', false, false ),
+	array( 'fitri.handayani@example.com', 2, 890000.00, 4, 'sweep', false, false ),
+	array( 'yuni.hartati@example.org', 26, 260000.00, 2, true, true, true ),
+	array( 'lia.marlina@example.net', 50, 2340000.00, 8, true, true, false ),
+	array( 'tari.oktaviani@example.com', 74, 640000.00, 3, true, true, true ),
+	array( 'nabila.azzahra@example.net', 12, 720000.00, 4, true, true, false ),
+	array( 'hesti.nuraini@example.com', 40, 310000.00, 2, true, true, false ),
+	// Genuinely still shopping: recent, so the sweep leaves it alone.
+	array( 'vina.kartika@example.com', 0, 150000.00, 1, false, false, false ),
 );
 
 $created_carts = 0;
@@ -442,11 +456,16 @@ foreach ( $cart_specs as $i => $spec ) {
 		);
 	}
 
+	// NULLIF on every nullable column, because $wpdb->prepare stringifies a PHP
+	// null to '' and MySQL then stores '0000-00-00 00:00:00' in a DATETIME.
+	// That is not NULL, so the sweep's "abandoned_at IS NULL" never matches and
+	// no cart is ever picked up: the whole recovery path goes quiet, and a
+	// truthiness check on the zero date even reports it as abandoned.
 	$inserted = $wpdb->query(
 		$wpdb->prepare(
 			"INSERT INTO {$carts_table}
 			 (session_key, recovery_token, user_id, email, cart_total, currency, item_count, contents, created, updated, abandoned_at, notified_at, recovered_order_id)
-			 VALUES (%s, %s, 0, %s, %f, %s, %d, %s, %s, %s, %s, %s, %s)
+			 VALUES (%s, %s, 0, %s, %f, %s, %d, %s, %s, %s, NULLIF(%s, ''), NULLIF(%s, ''), NULLIF(%s, ''))
 			 ON DUPLICATE KEY UPDATE cart_total = VALUES(cart_total)",
 			'nvr-demo-' . $i,
 			'demo' . bin2hex( random_bytes( 12 ) ),
@@ -457,7 +476,9 @@ foreach ( $cart_specs as $i => $spec ) {
 			(string) wp_json_encode( $contents ),
 			gmdate( 'Y-m-d H:i:s', $updated - 900 ),
 			gmdate( 'Y-m-d H:i:s', $updated ),
-			$abandoned ? gmdate( 'Y-m-d H:i:s', $updated + 3600 ) : null,
+			// 'sweep' means leave it for the cron to decide, which is what makes
+			// the notify path actually run.
+			( true === $abandoned ) ? gmdate( 'Y-m-d H:i:s', $updated + 3600 ) : null,
 			$notified ? gmdate( 'Y-m-d H:i:s', $updated + 3900 ) : null,
 			// A recovered cart points at a real order so the report can join.
 			$recovered ? (string) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}wc_orders WHERE billing_email = %s LIMIT 1", $email ) ) : null
