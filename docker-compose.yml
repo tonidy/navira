@@ -41,6 +41,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     ports:
       # FastCGI, bound to loopback. The host nginx connects here.
       - "127.0.0.1:9000:9000"
@@ -50,6 +52,17 @@ services:
       WORDPRESS_DB_USER: ${MYSQL_USER}
       WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD}
       WORDPRESS_TABLE_PREFIX: ${WORDPRESS_TABLE_PREFIX:-wp_}
+      # wp_mail has no sendmail binary in this image; nvr-smtp.php routes
+      # it to Mailpit over the compose network instead.
+      NVR_SMTP_HOST: mailpit
+      NVR_SMTP_PORT: "1025"
+      NVR_MAIL_FROM: no-reply@navira.run.biz.id
+      NVR_MAIL_NAME: Navira Beauty
+      # Only applied when wp-config.php is generated, i.e. on a fresh
+      # volume. The live file was edited in place; see
+      # deploy/navira-wp-cron for why.
+      WORDPRESS_CONFIG_EXTRA: |
+        if ( ! defined( 'DISABLE_WP_CRON' ) ) { define( 'DISABLE_WP_CRON', true ); }
     volumes:
       # Shared with nginx, see the note at the top of this file.
       - /srv/navira/wp:/var/www/html
@@ -57,6 +70,23 @@ services:
       # wp-cli, parked on the host so it survives container recreates.
       - /srv/navira/bin/wp:/usr/local/bin/wp:ro
     mem_limit: 512m
+
+  mailpit:
+    image: axllent/mailpit:v1.31
+    restart: unless-stopped
+    ports:
+      # Web inbox on loopback only. Reach it with an SSH tunnel:
+      #   ssh -N -L 8025:127.0.0.1:8025 node4
+      # SMTP (1025) is not published; only the compose network needs it.
+      - "127.0.0.1:8025:8025"
+    environment:
+      # Keep the catch-all honest: accept anything, store a bounded amount.
+      MP_MAX_MESSAGES: "500"
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+    volumes:
+      - mailpit_data:/data
+    mem_limit: 128m
 
 volumes:
   mysql_data:
@@ -67,3 +97,4 @@ volumes:
   wordpress_data:
     external: true
     name: sh0-wp-portofolio-wp-data
+  mailpit_data:

@@ -1,0 +1,17 @@
+# Real cron for the navira WordPress stack.
+#
+# WordPress' own cron is traffic-triggered: it only fires when someone loads a
+# page. nvr-hs schedules a queue drain every minute and a cart sweep every five,
+# and on a low-traffic store those intervals are meaningless without this file,
+# so deals sit queued and abandoned carts get caught late or not at all.
+#
+# Paired with define( 'DISABLE_WP_CRON', true ) in wp-config.php, which also
+# stops every page view paying the cost of checking for due events.
+#
+# Install to /etc/cron.d/navira-wp-cron, owner root, mode 0644. The file must
+# end with a newline or cron ignores it.
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+* * * * * ubuntu docker exec navira-wordpress-1 sh -c 'cd /var/www/html && wp --allow-root cron event run --due-now' >/dev/null 2>&1
