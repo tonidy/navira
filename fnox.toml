@@ -1,0 +1,8 @@
+default_provider = "age"
+
+[providers.age]
+type = "age"
+recipients = ["age19datt2prmutwdlkpqv5n24p0h854h5zugyfkkm4y56veney8k49s98uu7j"]
+
+[secrets]
+HS_PAK= { provider = "age", value = "YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBTdG9PcmZxU0VKZENjSE9pOXZ5bWpTK3JDalhYcnROb0hSb3Jtem11Z0N3CkhQNEVTWTBJbDVGaDBwVjUwVUxRRnZZRVhLNUV1anVWUWNzVGd3K0NzcTgKLT4gPElCTy1ncmVhc2UgVmdWKUEgW1N0ITwyVyBKQlouN00gVWMiMworZHQ1Z2Izd0pTY1dMMlo0VWl1TVBqUmluajgKLS0tIHdpTjMvR0xVaE5pbmV6U3c2dnVzWVp4WXpQMmRQV0ZGQm95VzltbVErWEEKc7gzq6i3cKh44tf2VakxdEUUNqtFvlEp6H3iUeT/QonnuXSGwouQBySdCoe72A8qroYuf9PZ8qV9qklrLSPsgQQer6ByKb+jdHjelg==", description = "hubspot PAK (portal 247211579)" }
