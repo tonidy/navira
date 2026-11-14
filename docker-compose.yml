@@ -6,7 +6,7 @@ name: navira
 # Keep the two in sync and diff them before changing either one.
 #
 # WordPress runs as php-fpm and does not serve HTTP itself. The host nginx
-# vhost (/etc/nginx/sites-enabled/navira.run.biz.id.conf) terminates TLS and
+# vhost (/etc/nginx/conf.d/navira.run.biz.id.conf) terminates TLS and
 # speaks FastCGI to 127.0.0.1:9000. nginx also has to read the same files for
 # its own "index" and "try_files" handling, which is why the webroot is a host
 # bind mount and not a named volume: /var/lib/docker is mode 0710 root:root, so
@@ -36,7 +36,7 @@ services:
     mem_limit: 768m
 
   wordpress:
-    image: wordpress:7.1.0-php8.5-fpm
+    image: wordpress:7.1.4-php8.5-fpm
     restart: unless-stopped
     depends_on:
       db:
@@ -76,7 +76,7 @@ services:
     restart: unless-stopped
     ports:
       # Web inbox on loopback only. Reach it with an SSH tunnel:
-      #   ssh -N -L 8025:127.0.0.1:8025 node4
+      #   ssh -N -L 8025:127.0.0.1:8025 root@node8
       # SMTP (1025) is not published; only the compose network needs it.
       - "127.0.0.1:8025:8025"
     environment:

@@ -8,10 +8,13 @@
 # Paired with define( 'DISABLE_WP_CRON', true ) in wp-config.php, which also
 # stops every page view paying the cost of checking for due events.
 #
+# Runs as www-data inside the container. Running wp-cli as root left root-owned
+# files (wc-logs, updated plugins) that WordPress itself could not write to.
+#
 # Install to /etc/cron.d/navira-wp-cron, owner root, mode 0644. The file must
 # end with a newline or cron ignores it.
 
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-* * * * * ubuntu docker exec navira-wordpress-1 sh -c 'cd /var/www/html && wp --allow-root cron event run --due-now' >/dev/null 2>&1
+* * * * * root docker exec -u www-data navira-wordpress-1 wp --path=/var/www/html cron event run --due-now >/dev/null 2>&1
